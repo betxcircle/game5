@@ -2,6 +2,8 @@ const socketIO = require('socket.io');
 const OdinCircledbModel = require('../models/odincircledb');
 const BetModel = require('../models/BetModel');
 const WinnerModel = require('../models/WinnerModel');
+
+const LoserModel = require('../models/LoserModel'); // Import LoserModel
 const mongoose = require('mongoose');
 
 function startSocketServer5 (httpServer){
@@ -134,116 +136,167 @@ function startSocketServer5 (httpServer){
   });
 
 
+
+    const DEFAULT_CHOICES = ["rock", "paper", "scissors"]; // Adjust choices based on your game
+
+// Function to auto-assign a choice after 5 seconds
+const autoAssignChoice = (roomID, playerID) => {
+  if (!rooms[roomID] || rooms[roomID].choices[playerID]) {
+    return; // Stop if player has already made a choice
+  }
+
+  const randomChoice = DEFAULT_CHOICES[Math.floor(Math.random() * DEFAULT_CHOICES.length)];
+  rooms[roomID].choices[playerID] = randomChoice;
+
+  io.to(playerID).emit('autoChoice', { choice: randomChoice });
+  console.log(`Auto-assigned ${randomChoice} to ${playerID} in room ${roomID}`);
+
+  // Check if both players have made choices and process the round
+  if (Object.keys(rooms[roomID].choices).length === 2) {
+    processRound(roomID);
+  }
+};
+
+// Process the round after both choices are made
+const processRound = (roomID) => {
+  console.log(`Both players have made their choices in room ${roomID}. Processing the round...`);
+
+  const roundWinner = determineRoundWinner(roomID);
+  if (roundWinner) {
+    rooms[roomID].scores[roundWinner] = (rooms[roomID].scores[roundWinner] || 0) + 1;
+  }
+
+  rooms[roomID].round = (rooms[roomID].round || 1) + 1;
+
+  io.to(roomID).emit('scoreUpdate', {
+    scores: rooms[roomID].scores,
+    round: rooms[roomID].round,
+  });
+
+  if (rooms[roomID].round > MAX_ROUNDS) {
+    const overallWinnerMessage = determineOverallWinner(roomID);
+    io.to(roomID).emit('gameOver', { roomID, scores: rooms[roomID].scores, overallWinner: overallWinnerMessage });
+    delete rooms[roomID];
+  } else {
+    rooms[roomID].choices = {};
+    io.to(roomID).emit('nextRound', { round: rooms[roomID].round });
+  }
+};
+
+
 socket.on('choice', async (data) => {
   console.log("Incoming choice data:", data);
   const { roomId, choice, playerName } = data;
-  const roomID = roomId.roomId || roomId;  // Correctly handle roomId
-  
+  const roomID = roomId.roomId || roomId;
+
   if (!rooms[roomID]) {
     console.log(`Room ${roomID} does not exist`);
     return;
   }
-  
+
   console.log(`Received choice from ${playerName} in room ${roomID}:`, choice);
-  
-  if (rooms[roomID]) {
-    const playerInRoom = rooms[roomID].players.find(player => player.id === socket.id);
-    if (playerInRoom) {
-      rooms[roomID].choices[socket.id] = choice;  // Store the choice
-      
-      // Emit back to player for confirmation
-      socket.emit('playersChoice', { playerName, choice });
-      
-      // Check if both players have made their choices
-      if (Object.keys(rooms[roomID].choices).length === 1) {
-        // Notify the first player that they're waiting for the second player's choice
-        socket.emit('waitingForOpponent');
-        
-        // Notify the second player that the first player has made their choice
-        const otherPlayer = rooms[roomID].players.find(player => player.id !== socket.id);
-        io.to(otherPlayer.id).emit('waitingForOpponent');
-      }
-      
-      if (Object.keys(rooms[roomID].choices).length === 2) {
-        console.log(`Both players have made their choices in room ${roomID}. Processing the round...`);
-        
-        // Process the round as usual
-        const roundWinner = determineRoundWinner(roomID);
-        if (roundWinner) {
-          rooms[roomID].scores[roundWinner] = (rooms[roomID].scores[roundWinner] || 0) + 1;
-        }
-        
-        // Increment round number
-        rooms[roomID].round = (rooms[roomID].round || 1) + 1;
-        
-        // Emit the updated scores
-        io.to(roomID).emit('scoreUpdate', {
-          scores: rooms[roomID].scores,
-          round: rooms[roomID].round,
-        });
 
-        // Check if the game has reached the maximum number of rounds
-        if (rooms[roomID].round > MAX_ROUNDS) {
-          // Determine overall winner after all rounds
-          const overallWinnerMessage = determineOverallWinner(roomID);
-          
-          if (overallWinnerMessage.includes("tie")) {
-            console.log(`Game tie in room ${roomID}. Resetting for another round.`);
-            io.to(roomID).emit('tieGame', { roomID, message: overallWinnerMessage });
+  const playerInRoom = rooms[roomID].players.find(player => player.id === socket.id);
+  if (!playerInRoom) {
+    console.error(`Player with socket ID ${socket.id} is not in room ${roomID}`);
+    return;
+  }
 
-            // Reset game data, but not the room itself
-            resetGame(roomID);
-          } else {
-            console.log(`Game over in room ${roomID}`);
-            io.to(roomID).emit('gameOver', { roomID, scores: rooms[roomID].scores, overallWinner: overallWinnerMessage });
+  rooms[roomID].choices[socket.id] = choice;
+  socket.emit('playersChoice', { playerName, choice });
 
-            // After determining the winner, update the winner's balance
-            const winnerUserId = overallWinnerMessage.includes('Player 1') ? rooms[roomID].players[0].userId : rooms[roomID].players[1].userId;
-            const totalBet = rooms[roomID].totalBet || 0;
+  const otherPlayer = rooms[roomID].players.find(player => player.id !== socket.id);
 
-            try {
-              if (!winnerUserId) {
-                console.log('Invalid winner user ID:', winnerUserId);
-                return;
-              }
+  // if (Object.keys(rooms[roomID].choices).length === 1 && otherPlayer) {
+  //   io.to(otherPlayer.id).emit('waitingForOpponent');
+  // }
+   if (Object.keys(rooms[roomID].choices).length === 1 && otherPlayer) {
+    io.to(otherPlayer.id).emit('waitingForOpponent');
 
-              const winnerUser = await OdinCircledbModel.findById(winnerUserId);
-              if (winnerUser) {
-                winnerUser.wallet.cashoutbalance += totalBet;
-                await winnerUser.save();
-                console.log(`${winnerUser.name}'s balance updated`);
+    // Start a 5-second timer for the other player
+    setTimeout(() => autoAssignChoice(roomID, otherPlayer.id), 5000);
+  }
 
-                // Save the winner information in the WinnerModel
-                const newWinner = new WinnerModel({
-                  roomId: roomID,
-                  winnerName: winnerUser._id,
-                  totalBet: totalBet,
-                });
-                await newWinner.save();
-                console.log('Winner saved to database:', newWinner);
-              } else {
-                console.log('Winner user not found');
-              }
-            } catch (error) {
-              console.error('Error updating winner balance or saving to database:', error.message);
+  if (Object.keys(rooms[roomID].choices).length === 2) {
+    console.log(`Both players have made their choices in room ${roomID}. Processing the round...`);
+
+    const roundWinner = determineRoundWinner(roomID);
+    if (roundWinner) {
+      rooms[roomID].scores[roundWinner] = (rooms[roomID].scores[roundWinner] || 0) + 1;
+    }
+    
+  //  if (Object.keys(rooms[roomID].choices).length === 2) {
+  //   processRound(roomID);
+  // }
+
+    rooms[roomID].round = (rooms[roomID].round || 1) + 1;
+
+    io.to(roomID).emit('scoreUpdate', {
+      scores: rooms[roomID].scores,
+      round: rooms[roomID].round,
+    });
+
+    if (rooms[roomID].round > MAX_ROUNDS) {
+      const overallWinnerMessage = determineOverallWinner(roomID);
+
+      if (overallWinnerMessage.includes("tie")) {
+        console.log(`Game tie in room ${roomID}. Resetting for another round.`);
+        io.to(roomID).emit('tieGame', { roomID, message: overallWinnerMessage });
+        resetGame(roomID);
+      } else {
+        console.log(`Game over in room ${roomID}`);
+        io.to(roomID).emit('gameOver', { roomID, scores: rooms[roomID].scores, overallWinner: overallWinnerMessage });
+
+        const winnerIndex = overallWinnerMessage.includes(rooms[roomID].players[0].name) ? 0 : 1;
+        const loserIndex = winnerIndex === 0 ? 1 : 0;
+
+        const winnerUserId = rooms[roomID].players[winnerIndex].userId;
+        const loserUserId = rooms[roomID].players[loserIndex].userId;
+        const totalBet = rooms[roomID].totalBet || 0;
+
+        try {
+          if (winnerUserId) {
+            const winnerUser = await OdinCircledbModel.findById(winnerUserId);
+            if (winnerUser) {
+              winnerUser.wallet.cashoutbalance += totalBet;
+              await winnerUser.save();
+              console.log(`${winnerUser.name}'s balance updated`);
+
+              const newWinner = new WinnerModel({
+                roomId: roomID,
+                winnerName: winnerUser._id,
+                totalBet: totalBet,
+              });
+              await newWinner.save();
+              console.log('Winner saved to database:', newWinner);
             }
-
-            // Clear room data if no longer needed
-            delete rooms[roomID];
           }
-        } else {
-          // Reset choices for the next round
-          rooms[roomID].choices = {};
-          io.to(roomID).emit('nextRound', { round: rooms[roomID].round });
+
+          if (loserUserId) {
+            const loserUser = await OdinCircledbModel.findById(loserUserId);
+            if (loserUser) {
+              const newLoser = new LoserModel({
+                roomId: roomID,
+                loserName: loserUser._id,
+                totalBetLost: totalBet,
+              });
+              await newLoser.save();
+              console.log('Loser saved to database:', newLoser);
+            }
+          }
+        } catch (error) {
+          console.error('Error updating winner/loser balance or saving to database:', error.message);
         }
+
+        delete rooms[roomID];
       }
     } else {
-      console.error(`Player with socket ID ${socket.id} is not in room ${roomID}`);
+      rooms[roomID].choices = {};
+      io.to(roomID).emit('nextRound', { round: rooms[roomID].round });
     }
-  } else {
-    console.error(`Players array is undefined for room ${roomID}`);
   }
 });
+
 
 
 socket.on('placeBet', async ({ roomId, userId, playerNumber, betAmount }) => {
@@ -321,27 +374,63 @@ socket.on('placeBet', async ({ roomId, userId, playerNumber, betAmount }) => {
 
 
  // Handle socket disconnection
- socket.on('disconnect', () => {
+socket.on('disconnect', async () => {
   console.log('A user disconnected:', socket.id);
 
-  // Find the room and player
   for (const roomId in rooms) {
     const room = rooms[roomId];
-    const playerIndex = room.players.findIndex(player => player.id === socket.id);
 
+    const playerIndex = room.players.findIndex(player => player.id === socket.id);
     if (playerIndex !== -1) {
       const disconnectedPlayer = room.players[playerIndex];
-      room.players.splice(playerIndex, 1);
+      room.players.splice(playerIndex, 1); // Remove the player
 
       io.to(roomId).emit('message', `${disconnectedPlayer.name} has left the game`);
 
+      // If no players are left, delete the room
       if (room.players.length === 0) {
-        delete rooms[roomId]; // Delete the room if no players are left
-      } else {
-        io.to(roomId).emit('opponentLeft', `${disconnectedPlayer.name} has left the game. Waiting for a new player...`);
-        room.choices = {}; // Reset choices if a player leaves mid-game
+        delete rooms[roomId];
+        return;
       }
-      break;
+
+      // Check if there is already a winner
+      const winnerMessage = determineOverallWinner(roomId);
+      if (!winnerMessage.includes("tie") && winnerMessage.includes("winner")) {
+        io.to(roomId).emit('opponentLeft', `${disconnectedPlayer.name} has left, but the game was already won.`);
+        return;
+      }
+
+      // If the game wasn't decided yet, the remaining player wins by default
+      if (room.players.length === 1) {
+        const remainingPlayer = room.players[0];
+
+        io.to(roomId).emit('gameOver', { 
+          message: `${remainingPlayer.name} wins by default as the opponent left!`,
+          winner: remainingPlayer.name
+        });
+
+        try {
+          const winnerUser = await OdinCircledbModel.findById(remainingPlayer.userId);
+          if (winnerUser) {
+            winnerUser.wallet.cashoutbalance += room.totalBet;
+            await winnerUser.save();
+
+            // Save the winner record
+            const newWinner = new WinnerModel({
+              roomId: roomId,
+              winnerName: remainingPlayer.userId,
+              totalBet: room.totalBet,
+            });
+            await newWinner.save();
+
+            console.log(`Default win credited to ${remainingPlayer.name} (${remainingPlayer.userId})`);
+          }
+        } catch (error) {
+          console.error('Error updating default winner balance:', error);
+        }
+      }
+      
+      break; // Exit loop once the room is found and handled
     }
   }
 });
