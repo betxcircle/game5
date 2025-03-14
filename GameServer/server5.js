@@ -374,68 +374,31 @@ socket.on('placeBet', async ({ roomId, userId, playerNumber, betAmount }) => {
 
 
 
-socket.on('disconnect', async () => {
+
+
+ socket.on('disconnect', () => {
   console.log('A user disconnected:', socket.id);
 
+  // Find the room and player
   for (const roomId in rooms) {
     const room = rooms[roomId];
-
     const playerIndex = room.players.findIndex(player => player.id === socket.id);
+
     if (playerIndex !== -1) {
       const disconnectedPlayer = room.players[playerIndex];
-      room.players.splice(playerIndex, 1); // Remove the player
+      room.players.splice(playerIndex, 1);
 
-      io.to(roomId).emit('message', `${disconnectedPlayer.name} has left the game`);
+      io.to(roomId).emit('message', ${disconnectedPlayer.name} has left the game);
 
-      // If no players are left, delete the room
       if (room.players.length === 0) {
-        delete rooms[roomId];
-        return;
+        delete rooms[roomId]; // Delete the room if no players are left
+      } else {
+        io.to(roomId).emit('opponentLeft', ${disconnectedPlayer.name} has left the game. Waiting for a new player...);
+        room.choices = {}; // Reset choices if a player leaves mid-game
       }
-
-      // Check if there is already a winner
-      const winnerMessage = determineOverallWinner(roomId);
-      if (!winnerMessage.includes("tie") && winnerMessage.includes("winner")) {
-        io.to(roomId).emit('opponentLeft', `${disconnectedPlayer.name} has left, but the game was already won.`);
-        return;
-      }
-
-      // If the game wasn't decided yet, the remaining player wins by default
-      if (room.players.length === 1) {
-        const remainingPlayer = room.players[0];
-
-        io.to(roomId).emit('gameOver', { 
-          message: `${remainingPlayer.name} wins by default as the opponent left!`,
-          winner: remainingPlayer.name
-        });
-
-        try {
-          const winnerUser = await OdinCircledbModel.findById(remainingPlayer.userId);
-          if (winnerUser) {
-            winnerUser.wallet.cashoutbalance += room.totalBet;
-            await winnerUser.save();
-
-            // Save the winner record
-            const newWinner = new WinnerModel({
-              roomId: roomId,
-              winnerName: remainingPlayer.userId,
-              totalBet: room.totalBet,
-            });
-            await newWinner.save();
-
-            console.log(`Default win credited to ${remainingPlayer.name} (${remainingPlayer.userId})`);
-          }
-        } catch (error) {
-          console.error('Error updating default winner balance:', error);
-        }
-      }
-      
-      break; // Exit loop once the room is found and handled
+      break;
     }
   }
-});
-
-
     
 
 
