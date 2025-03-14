@@ -247,41 +247,54 @@ socket.on('choice', async (data) => {
         console.log(`Game over in room ${roomID}`);
         io.to(roomID).emit('gameOver', { roomID, scores: rooms[roomID].scores, overallWinner: overallWinnerMessage })
   
-        const winnerUserId = determineOverallWinner(roomID);
             const totalBet = rooms[roomID].totalBet || 0;
 
 const winnerUserId = determineOverallWinner(roomID);
 console.log(`🛠 Winner Determined: ${winnerUserId}`); // Debug log
 
 if (winnerUserId !== "tie") {
-  const loserUserId = rooms[roomID].players.find(player => player.userId !== winnerUserId).userId;
+  const loserUser = rooms[roomID].players.find(p => p.userId !== winnerUserId);
+  const loserUserId = loserUser ? loserUser.userId : null;
+  
+  console.log(`🏆 Winner User ID: ${winnerUserId}, ❌ Loser User ID: ${loserUserId}`);
 
-  console.log(`Winner: ${winnerUserId}, Loser: ${loserUserId}`);
+  try {
+    const winnerUser = await OdinCircledbModel.findById(winnerUserId);
+    if (!winnerUser) {
+      console.error(`❌ No user found with ID: ${winnerUserId}`);
+      return;
+    }
 
- try {
-  const winnerUser = await OdinCircledbModel.findById(winnerUserId);
-  if (!winnerUser) {
-    console.error(`❌ No user found with ID: ${winnerUserId}`);
-    return;
+    console.log(`✅ Winner found: ${winnerUser.name} (ID: ${winnerUserId})`);
+    winnerUser.wallet.cashoutbalance += rooms[roomID].totalBet || 0;
+    await winnerUser.save();
+    console.log(`💰 Updated balance for ${winnerUser.name}: ${winnerUser.wallet.cashoutbalance}`);
+
+    const newWinner = new WinnerModel({
+      roomId: roomID,
+      winnerName: winnerUserId,
+      totalBet: rooms[roomID].totalBet,
+    });
+    await newWinner.save();
+    console.log(`🏆 Winner saved: ${newWinner}`);
+
+    if (loserUserId) {
+      const loserUserDoc = await OdinCircledbModel.findById(loserUserId);
+      if (loserUserDoc) {
+        const newLoser = new LoserModel({
+          roomId: roomID,
+          loserName: loserUserId,
+          totalBetLost: rooms[roomID].totalBet,
+        });
+        await newLoser.save();
+        console.log(`❌ Loser saved: ${newLoser}`);
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error updating winner/loser:', error.message);
   }
-  console.log(`✅ Winner found in DB: ${winnerUser.name}`);
-
-  winnerUser.wallet.cashoutbalance += rooms[roomID].totalBet || 0;
-  await winnerUser.save();
-  console.log(`💰 Balance updated for winner: ${winnerUser.name}, New Balance: ${winnerUser.wallet.cashoutbalance}`);
-
-  // Save the winner record
-  const newWinner = new WinnerModel({
-    roomId: roomID,
-    winnerName: winnerUser._id,
-    totalBet: rooms[roomID].totalBet,
-  });
-  await newWinner.save();
-  console.log(`🏆 Winner saved to DB: ${newWinner}`);
-} catch (error) {
-  console.error('❌ Error saving winner:', error.message);
 }
-}
+
     console.log(`🛠 Deleting room ${roomID} after processing`);
 setTimeout(() => {
   delete rooms[roomID];
