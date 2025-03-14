@@ -372,8 +372,6 @@ socket.on('placeBet', async ({ roomId, userId, playerNumber, betAmount }) => {
 
 
 
-
- // Handle socket disconnection
 socket.on('disconnect', async () => {
   console.log('A user disconnected:', socket.id);
 
@@ -434,6 +432,9 @@ socket.on('disconnect', async () => {
     }
   }
 });
+
+
+    
 
 
 const determineRoundWinner = (roomID) => {
