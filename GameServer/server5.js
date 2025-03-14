@@ -245,14 +245,11 @@ socket.on('choice', async (data) => {
         resetGame(roomID);
       } else {
         console.log(`Game over in room ${roomID}`);
-        io.to(roomID).emit('gameOver', { roomID, scores: rooms[roomID].scores, overallWinner: overallWinnerMessage });
-
-        const winnerIndex = overallWinnerMessage.includes(rooms[roomID].players[0].name) ? 0 : 1;
-        const loserIndex = winnerIndex === 0 ? 1 : 0;
-
-        const winnerUserId = rooms[roomID].players[winnerIndex].userId;
-        const loserUserId = rooms[roomID].players[loserIndex].userId;
-        const totalBet = rooms[roomID].totalBet || 0;
+        io.to(roomID).emit('gameOver', { roomID, scores: rooms[roomID].scores, overallWinner: overallWinnerMessage })
+  
+            // After determining the winner, update the winner's balance
+            const winnerUserId = overallWinnerMessage.includes('Player 1') ? rooms[roomID].players[0].userId : rooms[roomID].players[1].userId;
+            const totalBet = rooms[roomID].totalBet || 0;
 
         try {
           if (winnerUserId) {
