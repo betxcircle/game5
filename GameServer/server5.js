@@ -249,7 +249,12 @@ socket.on('choice', async (data) => {
   
             // After determining the winner, update the winner's balance
             const winnerUserId = overallWinnerMessage.includes('Player 1') ? rooms[roomID].players[0].userId : rooms[roomID].players[1].userId;
-            const totalBet = rooms[roomID].totalBet || 0;
+
+        const loserUserId = overallWinnerMessage.includes('Player 1') 
+  ? rooms[roomID].players[1].userId 
+  : rooms[roomID].players[0].userId;
+        
+        const totalBet = rooms[roomID].totalBet || 0;
 
         try {
           if (winnerUserId) {
