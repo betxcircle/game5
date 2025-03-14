@@ -257,38 +257,49 @@ socket.on('choice', async (data) => {
         const totalBet = rooms[roomID].totalBet || 0;
 
         try {
-          if (winnerUserId) {
-            const winnerUser = await OdinCircledbModel.findById(winnerUserId);
-            if (winnerUser) {
-              winnerUser.wallet.cashoutbalance += totalBet;
-              await winnerUser.save();
-              console.log(`${winnerUser.name}'s balance updated`);
+  if (!winnerUserId) {
+    console.log('Invalid winner user ID:', winnerUserId);
+    return;
+  }
 
-              const newWinner = new WinnerModel({
-                roomId: roomID,
-                winnerName: winnerUser._id,
-                totalBet: totalBet,
-              });
-              await newWinner.save();
-              console.log('Winner saved to database:', newWinner);
-            }
-          }
+  // Fetch winner user from DB and update balance
+  const winnerUser = await OdinCircledbModel.findById(winnerUserId);
+  if (winnerUser) {
+    winnerUser.wallet.cashoutbalance += totalBet;
+    await winnerUser.save();
+    console.log(`${winnerUser.name}'s balance updated`);
 
-          if (loserUserId) {
-            const loserUser = await OdinCircledbModel.findById(loserUserId);
-            if (loserUser) {
-              const newLoser = new LoserModel({
-                roomId: roomID,
-                loserName: loserUser._id,
-                totalBetLost: totalBet,
-              });
-              await newLoser.save();
-              console.log('Loser saved to database:', newLoser);
-            }
-          }
-        } catch (error) {
-          console.error('Error updating winner/loser balance or saving to database:', error.message);
-        }
+    // Save winner to WinnerModel
+    const newWinner = new WinnerModel({
+      roomId: roomID,
+      winnerName: winnerUser._id,
+      totalBet: totalBet,
+    });
+    await newWinner.save();
+    console.log('Winner saved to database:', newWinner);
+  } else {
+    console.log('Winner user not found');
+  }
+
+  // Fetch loser user from DB and save to LoserModel
+  if (loserUserId) {
+    const loserUser = await OdinCircledbModel.findById(loserUserId);
+    if (loserUser) {
+      const newLoser = new LoserModel({
+        roomId: roomID,
+        loserName: loserUser._id,
+        totalBetLost: totalBet,
+      });
+      await newLoser.save();
+      console.log('Loser saved to database:', newLoser);
+    } else {
+      console.log('Loser user not found');
+    }
+  }
+
+} catch (error) {
+  console.error('Error updating winner/loser balance or saving to database:', error.message);
+}
 
         delete rooms[roomID];
       }
