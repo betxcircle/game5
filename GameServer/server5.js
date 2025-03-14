@@ -247,60 +247,48 @@ socket.on('choice', async (data) => {
         console.log(`Game over in room ${roomID}`);
         io.to(roomID).emit('gameOver', { roomID, scores: rooms[roomID].scores, overallWinner: overallWinnerMessage })
   
+        const winnerUserId = determineOverallWinner(roomID);
+            const totalBet = rooms[roomID].totalBet || 0;
+
 const winnerUserId = determineOverallWinner(roomID);
 
 if (winnerUserId !== "tie") {
   const loserUserId = rooms[roomID].players.find(player => player.userId !== winnerUserId).userId;
 
   console.log(`Winner: ${winnerUserId}, Loser: ${loserUserId}`);
-}
 
-        const totalBet = rooms[roomID].totalBet || 0;
+  try {
+    // Save the winner
+    const winnerUser = await OdinCircledbModel.findById(winnerUserId);
+    if (winnerUser) {
+      winnerUser.wallet.cashoutbalance += rooms[roomID].totalBet || 0;
+      await winnerUser.save();
 
-        try {
-  if (!winnerUserId) {
-    console.log('Invalid winner user ID:', winnerUserId);
-    return;
-  }
+      const newWinner = new WinnerModel({
+        roomId: roomID,
+        winnerName: winnerUser._id,
+        totalBet: rooms[roomID].totalBet,
+      });
+      await newWinner.save();
+      console.log('Winner saved to database:', newWinner);
+    }
 
-  // Fetch winner user from DB and update balance
-  const winnerUser = await OdinCircledbModel.findById(winnerUserId);
-  if (winnerUser) {
-    winnerUser.wallet.cashoutbalance += totalBet;
-    await winnerUser.save();
-    console.log(`${winnerUser.name}'s balance updated`);
-
-    // Save winner to WinnerModel
-    const newWinner = new WinnerModel({
-      roomId: roomID,
-      winnerName: winnerUser._id,
-      totalBet: totalBet,
-    });
-    await newWinner.save();
-    console.log('Winner saved to database:', newWinner);
-  } else {
-    console.log('Winner user not found');
-  }
-
-  // Fetch loser user from DB and save to LoserModel
-  if (loserUserId) {
+    // Save the loser
     const loserUser = await OdinCircledbModel.findById(loserUserId);
     if (loserUser) {
       const newLoser = new LoserModel({
         roomId: roomID,
         loserName: loserUser._id,
-        totalBetLost: totalBet,
+        totalBetLost: rooms[roomID].totalBet,
       });
       await newLoser.save();
       console.log('Loser saved to database:', newLoser);
-    } else {
-      console.log('Loser user not found');
     }
+  } catch (error) {
+    console.error('Error saving winner/loser to database:', error.message);
   }
-
-} catch (error) {
-  console.error('Error updating winner/loser balance or saving to database:', error.message);
 }
+
 
         delete rooms[roomID];
       }
