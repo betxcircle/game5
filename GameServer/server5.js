@@ -247,13 +247,14 @@ socket.on('choice', async (data) => {
         console.log(`Game over in room ${roomID}`);
         io.to(roomID).emit('gameOver', { roomID, scores: rooms[roomID].scores, overallWinner: overallWinnerMessage })
   
-            // After determining the winner, update the winner's balance
-            const winnerUserId = overallWinnerMessage.includes('Player 1') ? rooms[roomID].players[0].userId : rooms[roomID].players[1].userId;
+const winnerUserId = determineOverallWinner(roomID);
 
-        const loserUserId = overallWinnerMessage.includes('Player 1') 
-  ? rooms[roomID].players[1].userId 
-  : rooms[roomID].players[0].userId;
-        
+if (winnerUserId !== "tie") {
+  const loserUserId = rooms[roomID].players.find(player => player.userId !== winnerUserId).userId;
+
+  console.log(`Winner: ${winnerUserId}, Loser: ${loserUserId}`);
+}
+
         const totalBet = rooms[roomID].totalBet || 0;
 
         try {
@@ -491,7 +492,6 @@ const determineRoundWinner = (roomID) => {
   });
 };
 
-
 const determineOverallWinner = (roomID) => {
   const room = rooms[roomID];
   const [player1, player2] = room.players;
@@ -502,18 +502,14 @@ const determineOverallWinner = (roomID) => {
   console.log(`Player 1: ${player1.name}, Score: ${player1Score}`);
   console.log(`Player 2: ${player2.name}, Score: ${player2Score}`);
 
-  let result;
   if (player1Score > player2Score) {
-      result = `${player1.name} is the winner!`;
+    return player1.userId;  // Return Player 1's userId
   } else if (player2Score > player1Score) {
-      result = `${player2.name} is the winner!`;
+    return player2.userId;  // Return Player 2's userId
   } else {
-      result = "It's a tie! The game will reset.";
-      resetGame(roomID);
+    resetGame(roomID);
+    return "tie";  // Handle tie separately
   }
-
-  io.to(roomID).emit('gameResult', { message: result });
-  return result;  // Make sure to return the result
 };
 
 
