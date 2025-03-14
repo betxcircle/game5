@@ -251,46 +251,43 @@ socket.on('choice', async (data) => {
             const totalBet = rooms[roomID].totalBet || 0;
 
 const winnerUserId = determineOverallWinner(roomID);
+console.log(`🛠 Winner Determined: ${winnerUserId}`); // Debug log
 
 if (winnerUserId !== "tie") {
   const loserUserId = rooms[roomID].players.find(player => player.userId !== winnerUserId).userId;
 
   console.log(`Winner: ${winnerUserId}, Loser: ${loserUserId}`);
 
-  try {
-    // Save the winner
-    const winnerUser = await OdinCircledbModel.findById(winnerUserId);
-    if (winnerUser) {
-      winnerUser.wallet.cashoutbalance += rooms[roomID].totalBet || 0;
-      await winnerUser.save();
-
-      const newWinner = new WinnerModel({
-        roomId: roomID,
-        winnerName: winnerUser._id,
-        totalBet: rooms[roomID].totalBet,
-      });
-      await newWinner.save();
-      console.log('Winner saved to database:', newWinner);
-    }
-
-    // Save the loser
-    const loserUser = await OdinCircledbModel.findById(loserUserId);
-    if (loserUser) {
-      const newLoser = new LoserModel({
-        roomId: roomID,
-        loserName: loserUser._id,
-        totalBetLost: rooms[roomID].totalBet,
-      });
-      await newLoser.save();
-      console.log('Loser saved to database:', newLoser);
-    }
-  } catch (error) {
-    console.error('Error saving winner/loser to database:', error.message);
+ try {
+  const winnerUser = await OdinCircledbModel.findById(winnerUserId);
+  if (!winnerUser) {
+    console.error(`❌ No user found with ID: ${winnerUserId}`);
+    return;
   }
+  console.log(`✅ Winner found in DB: ${winnerUser.name}`);
+
+  winnerUser.wallet.cashoutbalance += rooms[roomID].totalBet || 0;
+  await winnerUser.save();
+  console.log(`💰 Balance updated for winner: ${winnerUser.name}, New Balance: ${winnerUser.wallet.cashoutbalance}`);
+
+  // Save the winner record
+  const newWinner = new WinnerModel({
+    roomId: roomID,
+    winnerName: winnerUser._id,
+    totalBet: rooms[roomID].totalBet,
+  });
+  await newWinner.save();
+  console.log(`🏆 Winner saved to DB: ${newWinner}`);
+} catch (error) {
+  console.error('❌ Error saving winner:', error.message);
 }
+}
+    console.log(`🛠 Deleting room ${roomID} after processing`);
+setTimeout(() => {
+  delete rooms[roomID];
+  console.log(`✅ Room ${roomID} deleted`);
+}, 5000); // Delay to ensure DB operations finish
 
-
-        delete rooms[roomID];
       }
     } else {
       rooms[roomID].choices = {};
