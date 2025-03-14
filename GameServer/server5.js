@@ -401,7 +401,6 @@ socket.on('placeBet', async ({ roomId, userId, playerNumber, betAmount }) => {
   }
     
 
-
 const determineRoundWinner = (roomID) => {
   const room = rooms[roomID];
   const [player1, player2] = room.players;
@@ -413,35 +412,34 @@ const determineRoundWinner = (roomID) => {
 
   // Determine the round winner
   if (choice1 === choice2) {
-      result = "It's a draw!";
+    result = "It's a draw!";
   } else if (
-      (choice1 === 'Rock' && choice2 === 'Scissors') ||
-      (choice1 === 'Scissors' && choice2 === 'Paper') ||
-      (choice1 === 'Paper' && choice2 === 'Rock')
+    (choice1 === 'Rock' && choice2 === 'Scissors') ||
+    (choice1 === 'Scissors' && choice2 === 'Paper') ||
+    (choice1 === 'Paper' && choice2 === 'Rock')
   ) {
-      result = `${player1.name} wins! ${choice1} beats ${choice2}`;
-      winner = player1;
+    result = `${player1.name} wins! ${choice1} beats ${choice2}`;
+    winner = player1;
   } else {
-      result = `${player2.name} wins! ${choice2} beats ${choice1}`;
-      winner = player2;
+    result = `${player2.name} wins! ${choice2} beats ${choice1}`;
+    winner = player2;
   }
 
-  // Update scores
+  // Update scores using userId instead of socket.id to avoid mismatches
   if (winner) {
-      room.scores[winner.id] = (room.scores[winner.id] || 0) + 1;
+    room.scores[winner.userId] = (room.scores[winner.userId] || 0) + 1;
   }
 
-  // // Emit round result
-  // io.to(roomID).emit('result', { winner: winner ? winner.name : null, scores: room.scores });
-   // Emit round result with updated scores
-   io.to(roomID).emit('result', { 
+  // Emit round result with updated scores
+  io.to(roomID).emit('result', { 
     winner: winner ? winner.name : null, 
     scores: {
-      player1: room.scores[player1.id] || 0,
-      player2: room.scores[player2.id] || 0,
+      [player1.userId]: room.scores[player1.userId] || 0,
+      [player2.userId]: room.scores[player2.userId] || 0,
     }
   });
 };
+
 
 const determineOverallWinner = (roomID) => {
   const room = rooms[roomID];
