@@ -260,7 +260,14 @@ socket.on('choice', async (data) => {
             } catch (error) {
               console.error('Error updating winner/loser balance or saving to database:', error.message);
             }
-
+              
+                // ✅ Emit Game Over Event
+                console.log(`🎮 Game over in room ${roomID}`);
+                io.to(roomID).emit('gameOver', {
+                    roomID,
+                    scores: rooms[roomID].scores,
+                    overallWinner: overallWinnerMessage
+                });
             // Clear room data if no longer needed
             delete rooms[roomID];
           }
