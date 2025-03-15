@@ -266,7 +266,7 @@ socket.on('choice', async (data) => {
                 io.to(roomID).emit('gameOver', {
                     roomID,
                     scores: rooms[roomID].scores,
-                    overallWinner: overallWinnerMessage
+                    overallWinner: winnerData
                 });
             // Clear room data if no longer needed
             delete rooms[roomID];
