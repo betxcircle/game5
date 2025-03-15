@@ -187,9 +187,8 @@ socket.on('choice', async (data) => {
 
       if (Object.keys(rooms[roomID].choices).length === 1) {
         socket.emit('waitingForOpponent');
-
         const otherPlayer = rooms[roomID].players.find(player => player.id !== socket.id);
-        io.to(otherPlayer.id).emit('waitingForOpponent');
+        if (otherPlayer) io.to(otherPlayer.id).emit('waitingForOpponent');
       }
 
       if (Object.keys(rooms[roomID].choices).length === 2) {
@@ -208,34 +207,25 @@ socket.on('choice', async (data) => {
         });
 
         if (rooms[roomID].round > MAX_ROUNDS) {
-          const overallWinnerMessage = determineOverallWinner(roomID);
+          const winnerData = determineOverallWinner(roomID);
 
-          if (overallWinnerMessage.includes("tie")) {
+          if (!winnerData) {
             console.log(`Game tie in room ${roomID}. Resetting for another round.`);
-            io.to(roomID).emit('tieGame', { roomID, message: overallWinnerMessage });
+            io.to(roomID).emit('tieGame', { roomID, message: "It's a tie! The game will reset." });
             resetGame(roomID);
           } else {
-            console.log(`Game over in room ${roomID}`);
-            io.to(roomID).emit('gameOver', { roomID, scores: rooms[roomID].scores, overallWinner: overallWinnerMessage });
-
-            // Identify winner and loser
-              
-         const winnerUserId = determineOverallWinner(roomID);
-          console.log(`🛠 Winner Determined: ${winnerUserId}`); // Debug log
-            //const winnerUserId = overallWinnerMessage.includes('Player 1') ? rooms[roomID].players[0].userId : rooms[roomID].players[1].userId
-                const loserUserId = loserUser ? loserUser.userId : null;
-  
-             console.log(`🏆 Winner User ID: ${winnerUserId}, ❌ Loser User ID: ${loserUserId}`);
+            const { winnerId, loserId } = winnerData;
+            console.log(`🏆 Winner User ID: ${winnerId}, ❌ Loser User ID: ${loserId}`);
             const totalBet = rooms[roomID].totalBet || 0;
 
             try {
-              if (!winnerUserId) {
-                console.log('Invalid winner user ID:', winnerUserId);
+              if (!winnerId) {
+                console.log('Invalid winner user ID:', winnerId);
                 return;
               }
 
               // ✅ Update Winner in Database
-              const winnerUser = await OdinCircledbModel.findById(winnerUserId);
+              const winnerUser = await OdinCircledbModel.findById(winnerId);
               if (winnerUser) {
                 winnerUser.wallet.cashoutbalance += totalBet;
                 await winnerUser.save();
@@ -253,8 +243,8 @@ socket.on('choice', async (data) => {
               }
 
               // ✅ Save Loser in Database
-              if (loserUserId) {
-                const loserUser = await OdinCircledbModel.findById(loserUserId);
+              if (loserId) {
+                const loserUser = await OdinCircledbModel.findById(loserId);
                 if (loserUser) {
                   const newLoser = new LoserModel({
                     roomId: roomID,
@@ -286,6 +276,7 @@ socket.on('choice', async (data) => {
     console.error(`Players array is undefined for room ${roomID}`);
   }
 });
+
 
 
 
@@ -396,14 +387,25 @@ socket.on('disconnect', () => {
 
 
 
+
 const determineRoundWinner = (roomID) => {
   const room = rooms[roomID];
+  if (!room || room.players.length < 2) {
+    console.error(`Error: Not enough players in room ${roomID}`);
+    return null;
+  }
+
   const [player1, player2] = room.players;
   const choice1 = room.choices[player1.id];
   const choice2 = room.choices[player2.id];
 
-  let result;
+  if (!choice1 || !choice2) {
+    console.error(`Error: Missing choices in room ${roomID}`);
+    return null;
+  }
+
   let winner = null;
+  let result;
 
   // Determine the round winner
   if (choice1 === choice2) {
@@ -414,71 +416,80 @@ const determineRoundWinner = (roomID) => {
     (choice1 === 'Paper' && choice2 === 'Rock')
   ) {
     result = `${player1.name} wins! ${choice1} beats ${choice2}`;
-    winner = player1;
+    winner = player1.id;
   } else {
     result = `${player2.name} wins! ${choice2} beats ${choice1}`;
-    winner = player2;
+    winner = player2.id;
   }
 
-  // Update scores using userId instead of socket.id to avoid mismatches
-  if (winner) {
-    room.scores[winner.userId] = (room.scores[winner.userId] || 0) + 1;
-  }
+  console.log(`Round result in room ${roomID}: ${result}`);
 
   // Emit round result with updated scores
   io.to(roomID).emit('result', { 
-    winner: winner ? winner.name : null, 
+    winner: winner ? (winner === player1.id ? player1.name : player2.name) : null, 
     scores: {
-      [player1.userId]: room.scores[player1.userId] || 0,
-      [player2.userId]: room.scores[player2.userId] || 0,
+      [player1.id]: room.scores[player1.id] || 0,
+      [player2.id]: room.scores[player2.id] || 0,
     }
   });
+
+  return winner;
 };
 
+      
 
-      const determineOverallWinner = (roomID) => {
+const determineOverallWinner = (roomID) => {
   const room = rooms[roomID];
-  if (!room || room.players.length < 2) return "tie";
-
   const [player1, player2] = room.players;
+
   const player1Score = room.scores[player1.id] || 0;
   const player2Score = room.scores[player2.id] || 0;
 
-  console.log(`📊 Scores - ${player1.name}: ${player1Score}, ${player2.name}: ${player2Score}`);
+  console.log(`Player 1: ${player1.name}, Score: ${player1Score}`);
+  console.log(`Player 2: ${player2.name}, Score: ${player2Score}`);
+
+  let winner = null;
+  let loser = null;
 
   if (player1Score > player2Score) {
-    return player1.userId; // Return userId instead of message
+    winner = player1;
+    loser = player2;
   } else if (player2Score > player1Score) {
-    return player2.userId; // Return userId instead of message
+    winner = player2;
+    loser = player1;
   } else {
-    return "tie";
+    console.log("It's a tie! The game will reset.");
+    io.to(roomID).emit('gameResult', { message: "It's a tie! The game will reset." });
+    resetGame(roomID);
+    return null;  // Return null for a tie
   }
+
+  io.to(roomID).emit('gameResult', { message: `${winner.name} is the winner!` });
+  return { winnerId: winner.userId, loserId: loser.userId };  // Return both winner and loser IDs
 };
 
 
-// const determineOverallWinner = (roomID) => {
-//   const room = rooms[roomID];
-//   const [player1, player2] = room.players;
 
+//       const determineOverallWinner = (roomID) => {
+//   const room = rooms[roomID];
+//   if (!room || room.players.length < 2) return "tie";
+
+//   const [player1, player2] = room.players;
 //   const player1Score = room.scores[player1.id] || 0;
 //   const player2Score = room.scores[player2.id] || 0;
 
-//   console.log(`Player 1: ${player1.name}, Score: ${player1Score}`);
-//   console.log(`Player 2: ${player2.name}, Score: ${player2Score}`);
+//   console.log(`📊 Scores - ${player1.name}: ${player1Score}, ${player2.name}: ${player2Score}`);
 
-//   let result;
 //   if (player1Score > player2Score) {
-//       result = `${player1.name} is the winner!`;
+//     return player1.userId; // Return userId instead of message
 //   } else if (player2Score > player1Score) {
-//       result = `${player2.name} is the winner!`;
+//     return player2.userId; // Return userId instead of message
 //   } else {
-//       result = "It's a tie! The game will reset.";
-//       resetGame(roomID);
+//     return "tie";
 //   }
-
-//   io.to(roomID).emit('gameResult', { message: result });
-//   return result;  // Make sure to return the result
 // };
+
+
 
 
 
