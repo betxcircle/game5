@@ -226,6 +226,8 @@ socket.on('choice', async (data) => {
 
               // ✅ Update Winner in Database
               const winnerUser = await OdinCircledbModel.findById(winnerId);
+                let overallWinnerMessage = "Game ended with no winner.";
+
               if (winnerUser) {
                 winnerUser.wallet.cashoutbalance += totalBet;
                 await winnerUser.save();
@@ -266,7 +268,7 @@ socket.on('choice', async (data) => {
                 io.to(roomID).emit('gameOver', {
                     roomID,
                     scores: rooms[roomID].scores,
-                    overallWinner: winnerUser
+                    overallWinner: overallWinnerMessage
                 });
             // Clear room data if no longer needed
             delete rooms[roomID];
