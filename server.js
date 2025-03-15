@@ -6,6 +6,7 @@ const socketIO = require('socket.io');
 const OdinCircledbModel = require('./models/odincircledb');
 const BetModel = require('./models/BetModel');
 const WinnerModel = require('./models/WinnerModel');
+const LoserModel = require('./models/LoserModel');
 const mongoose = require('mongoose');
 
 require("dotenv").config();
@@ -165,72 +166,61 @@ const SearchSocketIo = (server) => {
     io.to(roomId).emit('receiveText', { playerName, text });
   });
 
-
 socket.on('choice', async (data) => {
   console.log("Incoming choice data:", data);
   const { roomId, choice, playerName } = data;
-  const roomID = roomId.roomId || roomId;  // Correctly handle roomId
-  
+  const roomID = roomId.roomId || roomId;  
+
   if (!rooms[roomID]) {
     console.log(`Room ${roomID} does not exist`);
     return;
   }
-  
+
   console.log(`Received choice from ${playerName} in room ${roomID}:`, choice);
-  
+
   if (rooms[roomID]) {
     const playerInRoom = rooms[roomID].players.find(player => player.id === socket.id);
     if (playerInRoom) {
-      rooms[roomID].choices[socket.id] = choice;  // Store the choice
-      
-      // Emit back to player for confirmation
+      rooms[roomID].choices[socket.id] = choice;  
+
       socket.emit('playersChoice', { playerName, choice });
-      
-      // Check if both players have made their choices
+
       if (Object.keys(rooms[roomID].choices).length === 1) {
-        // Notify the first player that they're waiting for the second player's choice
         socket.emit('waitingForOpponent');
-        
-        // Notify the second player that the first player has made their choice
+
         const otherPlayer = rooms[roomID].players.find(player => player.id !== socket.id);
         io.to(otherPlayer.id).emit('waitingForOpponent');
       }
-      
+
       if (Object.keys(rooms[roomID].choices).length === 2) {
         console.log(`Both players have made their choices in room ${roomID}. Processing the round...`);
-        
-        // Process the round as usual
+
         const roundWinner = determineRoundWinner(roomID);
         if (roundWinner) {
           rooms[roomID].scores[roundWinner] = (rooms[roomID].scores[roundWinner] || 0) + 1;
         }
-        
-        // Increment round number
+
         rooms[roomID].round = (rooms[roomID].round || 1) + 1;
-        
-        // Emit the updated scores
+
         io.to(roomID).emit('scoreUpdate', {
           scores: rooms[roomID].scores,
           round: rooms[roomID].round,
         });
 
-        // Check if the game has reached the maximum number of rounds
         if (rooms[roomID].round > MAX_ROUNDS) {
-          // Determine overall winner after all rounds
           const overallWinnerMessage = determineOverallWinner(roomID);
-          
+
           if (overallWinnerMessage.includes("tie")) {
             console.log(`Game tie in room ${roomID}. Resetting for another round.`);
             io.to(roomID).emit('tieGame', { roomID, message: overallWinnerMessage });
-
-            // Reset game data, but not the room itself
             resetGame(roomID);
           } else {
             console.log(`Game over in room ${roomID}`);
             io.to(roomID).emit('gameOver', { roomID, scores: rooms[roomID].scores, overallWinner: overallWinnerMessage });
 
-            // After determining the winner, update the winner's balance
+            // Identify winner and loser
             const winnerUserId = overallWinnerMessage.includes('Player 1') ? rooms[roomID].players[0].userId : rooms[roomID].players[1].userId;
+            const loserUserId = rooms[roomID].players.find(player => player.userId !== winnerUserId).userId;
             const totalBet = rooms[roomID].totalBet || 0;
 
             try {
@@ -239,13 +229,13 @@ socket.on('choice', async (data) => {
                 return;
               }
 
+              // ✅ Update Winner in Database
               const winnerUser = await OdinCircledbModel.findById(winnerUserId);
               if (winnerUser) {
                 winnerUser.wallet.cashoutbalance += totalBet;
                 await winnerUser.save();
                 console.log(`${winnerUser.name}'s balance updated`);
 
-                // Save the winner information in the WinnerModel
                 const newWinner = new WinnerModel({
                   roomId: roomID,
                   winnerName: winnerUser._id,
@@ -256,15 +246,30 @@ socket.on('choice', async (data) => {
               } else {
                 console.log('Winner user not found');
               }
+
+              // ✅ Save Loser in Database
+              if (loserUserId) {
+                const loserUser = await OdinCircledbModel.findById(loserUserId);
+                if (loserUser) {
+                  const newLoser = new LoserModel({
+                    roomId: roomID,
+                    loserName: loserUser._id,
+                    totalBet: totalBet,
+                  });
+                  await newLoser.save();
+                  console.log('Loser saved to database:', newLoser);
+                } else {
+                  console.log('Loser user not found');
+                }
+              }
             } catch (error) {
-              console.error('Error updating winner balance or saving to database:', error.message);
+              console.error('Error updating winner/loser balance or saving to database:', error.message);
             }
 
             // Clear room data if no longer needed
             delete rooms[roomID];
           }
         } else {
-          // Reset choices for the next round
           rooms[roomID].choices = {};
           io.to(roomID).emit('nextRound', { round: rooms[roomID].round });
         }
@@ -276,6 +281,7 @@ socket.on('choice', async (data) => {
     console.error(`Players array is undefined for room ${roomID}`);
   }
 });
+
 
 
 socket.on('placeBet', async ({ roomId, userId, playerNumber, betAmount }) => {
@@ -421,29 +427,49 @@ const determineRoundWinner = (roomID) => {
 };
 
 
-const determineOverallWinner = (roomID) => {
+      const determineOverallWinner = (roomID) => {
   const room = rooms[roomID];
-  const [player1, player2] = room.players;
+  if (!room || room.players.length < 2) return "tie";
 
+  const [player1, player2] = room.players;
   const player1Score = room.scores[player1.id] || 0;
   const player2Score = room.scores[player2.id] || 0;
 
-  console.log(`Player 1: ${player1.name}, Score: ${player1Score}`);
-  console.log(`Player 2: ${player2.name}, Score: ${player2Score}`);
+  console.log(`📊 Scores - ${player1.name}: ${player1Score}, ${player2.name}: ${player2Score}`);
 
-  let result;
   if (player1Score > player2Score) {
-      result = `${player1.name} is the winner!`;
+    return player1.userId; // Return userId instead of message
   } else if (player2Score > player1Score) {
-      result = `${player2.name} is the winner!`;
+    return player2.userId; // Return userId instead of message
   } else {
-      result = "It's a tie! The game will reset.";
-      resetGame(roomID);
+    return "tie";
   }
-
-  io.to(roomID).emit('gameResult', { message: result });
-  return result;  // Make sure to return the result
 };
+
+
+// const determineOverallWinner = (roomID) => {
+//   const room = rooms[roomID];
+//   const [player1, player2] = room.players;
+
+//   const player1Score = room.scores[player1.id] || 0;
+//   const player2Score = room.scores[player2.id] || 0;
+
+//   console.log(`Player 1: ${player1.name}, Score: ${player1Score}`);
+//   console.log(`Player 2: ${player2.name}, Score: ${player2Score}`);
+
+//   let result;
+//   if (player1Score > player2Score) {
+//       result = `${player1.name} is the winner!`;
+//   } else if (player2Score > player1Score) {
+//       result = `${player2.name} is the winner!`;
+//   } else {
+//       result = "It's a tie! The game will reset.";
+//       resetGame(roomID);
+//   }
+
+//   io.to(roomID).emit('gameResult', { message: result });
+//   return result;  // Make sure to return the result
+// };
 
 
 
@@ -471,5 +497,5 @@ const MAX_ROUNDS = 4;
 const io = SearchSocketIo(server);
 
 server.listen(5555, () => {
-  console.log("🚀 Socket.io server running on port 5555");
+  console.log("🚀 Socket.io server running on port ");
 });
