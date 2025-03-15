@@ -358,9 +358,10 @@ socket.on('placeBet', async ({ roomId, userId, playerNumber, betAmount }) => {
 
 // Handle socket disconnection
 // Handle socket disconnection
-socket.on('disconnect', async () => {
-  console.log(`Player ${socket.id} disconnected.`);
+socket.on('disconnect', () => {
+  console.log('A user disconnected:', socket.id);
 
+  // Iterate through the rooms to find the disconnected player's room
   for (const roomId in rooms) {
     const room = rooms[roomId];
     const playerIndex = room.players.findIndex(player => player.id === socket.id);
@@ -369,63 +370,21 @@ socket.on('disconnect', async () => {
       const disconnectedPlayer = room.players[playerIndex];
       room.players.splice(playerIndex, 1); // Remove the player from the room
 
-      console.log(`Player ${disconnectedPlayer.name} (ID: ${socket.id}) disconnected from room ${roomId}`);
-      console.log(`Remaining players in room ${roomId}:`, room.players);
-
       io.to(roomId).emit('message', `${disconnectedPlayer.name} has left the game`);
 
       if (room.players.length === 0) {
         // Delete the room if no players are left
         delete rooms[roomId];
         console.log(`Room ${roomId} deleted from memory.`);
-      } else if (room.players.length === 1) {
-        // If one player remains, they win by default
-        const remainingPlayer = room.players[0];
-        console.log(`${remainingPlayer.name} is the winner by default as opponent left.`);
-
-        io.to(roomId).emit('gameOver', { 
-          roomId, 
-          scores: room.scores, 
-          overallWinner: `${remainingPlayer.name} wins by default!`
-        });
-
-        // Update database
-        try {
-          console.log(`Updating balance for user ${remainingPlayer.userId}`);
-          const winnerUser = await OdinCircledbModel.findById(remainingPlayer.userId);
-          if (winnerUser) {
-            winnerUser.wallet.cashoutbalance += room.totalBet || 0;
-            await winnerUser.save();
-            console.log(`${winnerUser.name}'s balance updated successfully. New balance: ${winnerUser.wallet.cashoutbalance}`);
-
-            // Save the winner to WinnerModel
-            const newWinner = new WinnerModel({
-              roomId: roomId,
-              winnerName: winnerUser._id,
-              totalBet: room.totalBet || 0,
-            });
-            await newWinner.save();
-            console.log('Winner saved to database:', newWinner);
-          } else {
-            console.log('Winner user not found in database.');
-          }
-        } catch (error) {
-          console.error('Error updating winner balance or saving to database:', error.message);
-        }
-
-        // Delete room after awarding the remaining player
-        delete rooms[roomId];
-        console.log(`Room ${roomId} deleted after awarding the winner.`);
       } else {
-        // If multiple players remain, just reset choices
-        console.log(`Game already had a winner or was a tie, resetting choices in room ${roomId}`);
-        io.to(roomId).emit('opponentLeft', `${disconnectedPlayer.name} has left. Waiting for a new player...`);
-        room.choices = {};
+        io.to(roomId).emit('opponentLeft', `${disconnectedPlayer.name} has left the game. Waiting for a new player...`);
+        room.choices = {}; // Reset choices if a player leaves mid-game
       }
       break;
     }
   }
 });
+
 
 
 
