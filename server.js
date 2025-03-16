@@ -208,13 +208,15 @@ socket.on('choice', async (data) => {
 
         if (rooms[roomID].round > MAX_ROUNDS) {
           const winnerData = determineOverallWinner(roomID);
+          let overallWinnerMessage = "Game ended with no winner.";
 
           if (!winnerData) {
             console.log(`Game tie in room ${roomID}. Resetting for another round.`);
             io.to(roomID).emit('tieGame', { roomID, message: "It's a tie! The game will reset." });
             resetGame(roomID);
           } else {
-            const { winnerId, loserId } = winnerData;
+            const { winnerId, loserId, message } = winnerData;
+            overallWinnerMessage = message;  // ✅ Set the actual winner message
             console.log(`🏆 Winner User ID: ${winnerId}, ❌ Loser User ID: ${loserId}`);
             const totalBet = rooms[roomID].totalBet || 0;
 
@@ -226,7 +228,6 @@ socket.on('choice', async (data) => {
 
               // ✅ Update Winner in Database
               const winnerUser = await OdinCircledbModel.findById(winnerId);
-                let overallWinnerMessage = "Game ended with no winner.";
 
               if (winnerUser) {
                 winnerUser.wallet.cashoutbalance += totalBet;
@@ -263,13 +264,14 @@ socket.on('choice', async (data) => {
               console.error('Error updating winner/loser balance or saving to database:', error.message);
             }
               
-                // ✅ Emit Game Over Event
-                console.log(`🎮 Game over in room ${roomID}`);
-                io.to(roomID).emit('gameOver', {
-                    roomID,
-                    scores: rooms[roomID].scores,
-                    overallWinner: overallWinnerMessage
-                });
+            // ✅ Emit Game Over Event with the Correct Winner Message
+            console.log(`🎮 Game over in room ${roomID}`);
+            io.to(roomID).emit('gameOver', {
+              roomID,
+              scores: rooms[roomID].scores,
+              overallWinner: overallWinnerMessage
+            });
+
             // Clear room data if no longer needed
             delete rooms[roomID];
           }
@@ -285,6 +287,7 @@ socket.on('choice', async (data) => {
     console.error(`Players array is undefined for room ${roomID}`);
   }
 });
+
 
 
 
@@ -361,7 +364,6 @@ socket.on('placeBet', async ({ roomId, userId, playerNumber, betAmount }) => {
 });
 
 
-// Handle socket disconnection
 socket.on('disconnect', async () => {
   console.log('A user disconnected:', socket.id);
 
@@ -391,6 +393,10 @@ socket.on('disconnect', async () => {
           // No winner was determined yet, credit the remaining player as the winner
           const remainingPlayer = room.players[0];
           console.log(`${remainingPlayer.name} is the winner by default as opponent left.`);
+
+          // ✅ Check if `room.scores` exists before using player2
+          const player2 = room.players[1]; // There might not be a second player
+          const player2Score = player2 ? (room.scores[player2.id] || 0) : 0;
 
           // Emit game over event
           io.to(roomId).emit('gameOver', { 
