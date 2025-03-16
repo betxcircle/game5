@@ -233,7 +233,7 @@ socket.on('choice', async (data) => {
               if (winnerUser) {
                 winnerUser.wallet.cashoutbalance += totalBet;
                 await winnerUser.save();
-                console.log(`${winnerUser.name}'s balance updated`);
+                   console.log(`${winnerUser}'s balance updated: ${winnerUser.wallet.cashoutbalance}`);
                 overallWinnerMessage = `${winnerUser.name} wins the game!`;
 
                 const newWinner = new WinnerModel({
