@@ -364,6 +364,8 @@ socket.on('placeBet', async ({ roomId, userId, playerNumber, betAmount }) => {
 });
 
 
+
+// Handle socket disconnection
 socket.on('disconnect', async () => {
   console.log('A user disconnected:', socket.id);
 
@@ -381,70 +383,63 @@ socket.on('disconnect', async () => {
       console.log(`Remaining players in room ${roomId}:`, room.players);
 
       if (room.players.length === 0) {
-        // Delete the room if no players are left
-        delete rooms[roomId];
+        delete rooms[roomId]; // Delete room if empty
         console.log(`Room ${roomId} deleted from memory.`);
       } else {
-        // If one player remains, check if a winner was already determined
-        const overallWinnerMessage = determineOverallWinner(roomId);
+        // Determine the winner
+        const winnerData = determineOverallWinner(roomId);
+
+        let overallWinnerMessage = "Game ended with no winner.";
+        if (winnerData && winnerData.winnerId) {
+          const remainingPlayer = room.players[0];
+          overallWinnerMessage = `${remainingPlayer.name} wins by default!`;
+        }
+
         console.log(`Overall winner message: ${overallWinnerMessage}`);
 
-        if (!overallWinnerMessage.includes("tie") && !overallWinnerMessage.includes("winner")) {
-          // No winner was determined yet, credit the remaining player as the winner
-          const remainingPlayer = room.players[0];
-          console.log(`${remainingPlayer.name} is the winner by default as opponent left.`);
-
-          // ✅ Check if `room.scores` exists before using player2
-          const player2 = room.players[1]; // There might not be a second player
-          const player2Score = player2 ? (room.scores[player2.id] || 0) : 0;
-
+        if (
+          typeof overallWinnerMessage === "string" &&
+          !overallWinnerMessage.includes("tie") &&
+          !overallWinnerMessage.includes("winner")
+        ) {
           // Emit game over event
-          io.to(roomId).emit('gameOver', { 
-            roomId, 
-            scores: room.scores, 
-            overallWinner: `${remainingPlayer.name} wins by default!`
+          io.to(roomId).emit("gameOver", {
+            roomId,
+            scores: room.scores,
+            overallWinner: overallWinnerMessage,
           });
 
-          // Update database
+          // Update database for winner
           try {
-            console.log(`Updating balance for user ${remainingPlayer.userId}`);
-            const winnerUser = await OdinCircledbModel.findById(remainingPlayer.userId);
+            const winnerUser = await OdinCircledbModel.findById(room.players[0].userId);
             if (winnerUser) {
               winnerUser.wallet.cashoutbalance += room.totalBet || 0;
               await winnerUser.save();
-              console.log(`${winnerUser.name}'s balance updated successfully. New balance: ${winnerUser.wallet.cashoutbalance}`);
+              console.log(`${winnerUser.name}'s balance updated.`);
 
-              // Save the winner to WinnerModel
               const newWinner = new WinnerModel({
                 roomId: roomId,
                 winnerName: winnerUser._id,
                 totalBet: room.totalBet || 0,
               });
               await newWinner.save();
-              console.log('Winner saved to database:', newWinner);
-            } else {
-              console.log('Winner user not found in database.');
             }
           } catch (error) {
-            console.error('Error updating winner balance or saving to database:', error.message);
+            console.error("Error updating winner balance:", error.message);
           }
 
-          // Delete room after awarding the remaining player
+          // Delete room
           delete rooms[roomId];
           console.log(`Room ${roomId} deleted after awarding the winner.`);
         } else {
-          // If a winner was already decided, just reset choices
-          console.log(`Game already had a winner or was a tie, resetting choices in room ${roomId}`);
-          io.to(roomId).emit('opponentLeft', `${disconnectedPlayer.name} has left. Waiting for a new player...`);
+          io.to(roomId).emit("opponentLeft", `${disconnectedPlayer.name} has left. Waiting for a new player...`);
           room.choices = {};
         }
       }
-      break; // Stop looping once the room is found and processed
+      break;
     }
   }
 });
-
-
 
       
 // Handle socket disconnection
