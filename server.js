@@ -208,6 +208,7 @@ socket.on('choice', async (data) => {
 
         if (rooms[roomID].round > MAX_ROUNDS) {
           const winnerData = determineOverallWinner(roomID);
+            console.log("🏆 determineOverallWinner output:", winnerData);
           let overallWinnerMessage = "Game ended with no winner.";
 
           if (!winnerData) {
@@ -233,6 +234,7 @@ socket.on('choice', async (data) => {
                 winnerUser.wallet.cashoutbalance += totalBet;
                 await winnerUser.save();
                 console.log(`${winnerUser.name}'s balance updated`);
+                overallWinnerMessage = `${winnerUser.name} wins the game!`;
 
                 const newWinner = new WinnerModel({
                   roomId: roomID,
@@ -265,7 +267,7 @@ socket.on('choice', async (data) => {
             }
               
             // ✅ Emit Game Over Event with the Correct Winner Message
-            console.log(`🎮 Game over in room ${roomID}`);
+          console.log(`🎮 Game over in room ${roomID}, Winner: ${overallWinnerMessage}`);
             io.to(roomID).emit('gameOver', {
               roomID,
               scores: rooms[roomID].scores,
