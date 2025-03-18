@@ -181,8 +181,7 @@ socket.on('choice', async (data) => {
   if (rooms[roomID]) {
     const playerInRoom = rooms[roomID].players.find(player => player.id === socket.id);
     if (playerInRoom) {
-      rooms[roomID].choices[socket.id] = choice;  
-
+      rooms[roomID].choices[socket.id] = choice;
       socket.emit('playersChoice', { playerName, choice });
 
       if (Object.keys(rooms[roomID].choices).length === 1) {
@@ -208,8 +207,7 @@ socket.on('choice', async (data) => {
 
         if (rooms[roomID].round > MAX_ROUNDS) {
           const winnerData = determineOverallWinner(roomID);
-            console.log("🏆 determineOverallWinner output:", winnerData);
-          let overallWinnerMessage = "Game ended with no winner.";
+          console.log("🏆 determineOverallWinner output:", winnerData);
 
           if (!winnerData) {
             console.log(`Game tie in room ${roomID}. Resetting for another round.`);
@@ -217,7 +215,6 @@ socket.on('choice', async (data) => {
             resetGame(roomID);
           } else {
             const { winnerId, loserId, message } = winnerData;
-            overallWinnerMessage = message;  // ✅ Set the actual winner message
             console.log(`🏆 Winner User ID: ${winnerId}, ❌ Loser User ID: ${loserId}`);
             const totalBet = rooms[roomID].totalBet || 0;
 
@@ -233,8 +230,7 @@ socket.on('choice', async (data) => {
               if (winnerUser) {
                 winnerUser.wallet.cashoutbalance += totalBet;
                 await winnerUser.save();
-                   console.log(`${winnerUser}'s balance updated: ${winnerUser.wallet.cashoutbalance}`);
-                overallWinnerMessage = `${winnerUser.name} wins the game!`;
+                console.log(`${winnerUser.name}'s balance updated: ${winnerUser.wallet.cashoutbalance}`);
 
                 const newWinner = new WinnerModel({
                   roomId: roomID,
@@ -265,13 +261,26 @@ socket.on('choice', async (data) => {
             } catch (error) {
               console.error('Error updating winner/loser balance or saving to database:', error.message);
             }
-              
-            // ✅ Emit Game Over Event with the Correct Winner Message
-          console.log(`🎮 Game over in room ${roomID}, Winner: ${overallWinnerMessage}`);
+
+            // ✅ Emit Separate Events for Winner & Loser
+            io.to(winnerId).emit('winnerScreen', {
+              winnerUserId: winnerId,
+              result: `🎉 You won!`,
+              totalBet,
+            });
+
+            io.to(loserId).emit('loserScreen', {
+              loserUserId: loserId,
+              result: `😞 You lost!`,
+              totalBet,
+            });
+
+            // ✅ Emit Game Over Event for Everyone
+            console.log(`🎮 Game over in room ${roomID}, Winner: ${winnerUser.name}`);
             io.to(roomID).emit('gameOver', {
               roomID,
               scores: rooms[roomID].scores,
-              overallWinner: overallWinnerMessage
+              overallWinner: `${winnerUser.name} wins the game!`
             });
 
             // Clear room data if no longer needed
@@ -289,7 +298,6 @@ socket.on('choice', async (data) => {
     console.error(`Players array is undefined for room ${roomID}`);
   }
 });
-
 
 
 
